@@ -59,6 +59,99 @@ class DataSimulator {
     }));
   }
 
+  // Sprawdzenie i utworzenie tabel jeśli nie istnieją
+  async ensureTablesExist() {
+    try {
+      // Tabela pojazdów
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS vehicles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          vehicle_id TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          model TEXT,
+          year INTEGER,
+          license_plate TEXT,
+          status TEXT DEFAULT 'offline',
+          fuel_level REAL DEFAULT 100,
+          last_seen DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Tabela lokalizacji
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS locations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          vehicle_id TEXT NOT NULL,
+          latitude REAL NOT NULL,
+          longitude REAL NOT NULL,
+          speed REAL DEFAULT 0,
+          heading REAL DEFAULT 0,
+          fuel_level REAL,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (vehicle_id) REFERENCES vehicles (vehicle_id)
+        )
+      `);
+
+      // Tabela tras
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS routes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          vehicle_id TEXT NOT NULL,
+          start_time DATETIME,
+          end_time DATETIME,
+          distance REAL DEFAULT 0,
+          avg_speed REAL DEFAULT 0,
+          max_speed REAL DEFAULT 0,
+          fuel_consumed REAL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (vehicle_id) REFERENCES vehicles (vehicle_id)
+        )
+      `);
+
+      console.log('Tabele bazy danych sprawdzone/utworzone');
+    } catch (error) {
+      console.error('Błąd podczas tworzenia tabel:', error);
+    }
+  }
+
+  // Wstawianie domyślnych pojazdów do bazy danych
+  async insertDefaultVehicles() {
+    const defaultVehicles = [
+      { vehicle_id: 'V001', name: 'Mercedes Sprinter', type: 'dostawczy', model: 'Sprinter 316', year: 2020, license_plate: 'RZ 27361' },
+      { vehicle_id: 'V002', name: 'Mercedes Actros', type: 'ciężarowy', model: 'Actros 1845', year: 2021, license_plate: 'RZ 45678' },
+      { vehicle_id: 'V003', name: 'Ford Transit', type: 'dostawczy', model: 'Transit Custom', year: 2021, license_plate: 'RZ 34567' },
+      { vehicle_id: 'V004', name: 'Ford Transit', type: 'dostawczy', model: 'Transit Custom', year: 2022, license_plate: 'RZ 78901' },
+      { vehicle_id: 'V005', name: 'Volkswagen Crafter', type: 'dostawczy', model: 'Crafter 35', year: 2019, license_plate: 'RZ 23456' },
+      { vehicle_id: 'V006', name: 'Volkswagen Crafter', type: 'dostawczy', model: 'Crafter 35', year: 2020, license_plate: 'RZ 56789' },
+      { vehicle_id: 'V007', name: 'Renault Master', type: 'dostawczy', model: 'Master L3H2', year: 2022, license_plate: 'RZ 12345' },
+      { vehicle_id: 'V008', name: 'Renault Kangoo', type: 'dostawczy', model: 'Kangoo Express', year: 2021, license_plate: 'RZ 67890' },
+      { vehicle_id: 'V009', name: 'Iveco Daily', type: 'dostawczy', model: 'Daily 35S15', year: 2020, license_plate: 'RZ 98765' },
+      { vehicle_id: 'V010', name: 'Iveco Stralis', type: 'ciężarowy', model: 'Stralis NP 460', year: 2021, license_plate: 'RZ 54321' }
+    ];
+
+    try {
+      for (const vehicle of defaultVehicles) {
+        await executeQuery(`
+          INSERT OR IGNORE INTO vehicles (vehicle_id, name, type, model, year, license_plate, status, fuel_level)
+          VALUES (?, ?, ?, ?, ?, ?, 'offline', ?)
+        `, [
+          vehicle.vehicle_id,
+          vehicle.name,
+          vehicle.type,
+          vehicle.model,
+          vehicle.year,
+          vehicle.license_plate,
+          60 + Math.random() * 39 // Losowy poziom paliwa 60-99%
+        ]);
+      }
+      console.log('Domyślne pojazdy dodane do bazy danych');
+    } catch (error) {
+      console.error('Błąd podczas dodawania domyślnych pojazdów:', error);
+    }
+  }
+
   // Inicjalizacja symulatora
   async init() {
     const db = createConnection();
@@ -66,13 +159,50 @@ class DataSimulator {
     // Ładuj trasy z pliku JSON
     this.loadRoutes();
     
+    // Sprawdź i utwórz tabele jeśli nie istnieją
+    await this.ensureTablesExist();
+    
     return new Promise((resolve, reject) => {
       db.all('SELECT vehicle_id, name, type FROM vehicles', [], (err, rows) => {
         if (err) {
-          console.error('Błąd podczas pobierania pojazdów:', err);
-          reject(err);
+          console.error('Błąd podczas pobierania pojazdów z bazy danych:', err);
+          console.log('Używam domyślnych pojazdów...');
+          // Fallback - domyślne pojazdy jeśli baza danych nie działa
+          this.vehicles = [
+            { vehicle_id: 'V001', name: 'Mercedes Sprinter', type: 'dostawczy' },
+            { vehicle_id: 'V002', name: 'Mercedes Actros', type: 'ciężarowy' },
+            { vehicle_id: 'V003', name: 'Ford Transit', type: 'dostawczy' },
+            { vehicle_id: 'V004', name: 'Ford Transit', type: 'dostawczy' },
+            { vehicle_id: 'V005', name: 'Volkswagen Crafter', type: 'dostawczy' },
+            { vehicle_id: 'V006', name: 'Volkswagen Crafter', type: 'dostawczy' },
+            { vehicle_id: 'V007', name: 'Renault Master', type: 'dostawczy' },
+            { vehicle_id: 'V008', name: 'Renault Kangoo', type: 'dostawczy' },
+            { vehicle_id: 'V009', name: 'Iveco Daily', type: 'dostawczy' },
+            { vehicle_id: 'V010', name: 'Iveco Stralis', type: 'ciężarowy' }
+          ];
         } else {
           this.vehicles = rows;
+          
+          // Jeśli baza danych jest pusta, dodaj domyślne pojazdy
+          if (this.vehicles.length === 0) {
+            console.log('Baza danych jest pusta, dodaję domyślne pojazdy...');
+            this.insertDefaultVehicles().then(() => {
+              this.vehicles = [
+                { vehicle_id: 'V001', name: 'Mercedes Sprinter', type: 'dostawczy' },
+                { vehicle_id: 'V002', name: 'Mercedes Actros', type: 'ciężarowy' },
+                { vehicle_id: 'V003', name: 'Ford Transit', type: 'dostawczy' },
+                { vehicle_id: 'V004', name: 'Ford Transit', type: 'dostawczy' },
+                { vehicle_id: 'V005', name: 'Volkswagen Crafter', type: 'dostawczy' },
+                { vehicle_id: 'V006', name: 'Volkswagen Crafter', type: 'dostawczy' },
+                { vehicle_id: 'V007', name: 'Renault Master', type: 'dostawczy' },
+                { vehicle_id: 'V008', name: 'Renault Kangoo', type: 'dostawczy' },
+                { vehicle_id: 'V009', name: 'Iveco Daily', type: 'dostawczy' },
+                { vehicle_id: 'V010', name: 'Iveco Stralis', type: 'ciężarowy' }
+              ];
+            }).catch(error => {
+              console.error('Błąd podczas dodawania domyślnych pojazdów:', error);
+            });
+          }
           
           // Losowo wybierz 1-3 pojazdy do statusu offline przy uruchomieniu
           const offlineCount = Math.floor(Math.random() * 3) + 1; // 1-3 pojazdy

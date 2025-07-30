@@ -1,7 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'fleet_management.db');
+const dbPath = path.join(__dirname, 'fleet.db');
 
 // Pojedyncze połączenie z bazą danych
 let db = null;
